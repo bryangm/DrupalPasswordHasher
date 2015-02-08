@@ -16,15 +16,18 @@ namespace Drupal.Core
 
         public PasswordVerificationResult VerifyHashedPassword(String hashedPassword, String providedPassword)
         {
+            var legacyHash = false;
+
             if (hashedPassword.Substring(0, 2) == "U$")
             {
                 // This may be an updated password from user_update_7000(). Such hashes
                 // have 'U' added as the first character and need an extra md5().
                 hashedPassword = hashedPassword.Substring(1);
+                legacyHash = true;
 
                 var algo = MD5.Create();
                 var passwordBytes = algo.ComputeHash(Encoding.ASCII.GetBytes(providedPassword));
-                providedPassword = PasswordBase64Encode(passwordBytes);
+                providedPassword = PasswordHexEncode(passwordBytes);
             }
 
             var type = hashedPassword.Substring(0, 3);
@@ -36,9 +39,10 @@ namespace Drupal.Core
                     if (VerifyHashedPasswordD7(DrupalPasswordHasherAlgorithm.SHA512, hashedPassword, providedPassword))
                     {
                         // Check if this is an old password hash format
-                        return UserNeedsNewHash(hashedPassword)
-                            ? PasswordVerificationResult.SuccessRehashNeeded
-                            : PasswordVerificationResult.Success;
+                        if (UserNeedsNewHash(hashedPassword) || legacyHash)
+                            return PasswordVerificationResult.SuccessRehashNeeded;
+                        
+                        return PasswordVerificationResult.Success;
                     }
                     else
                     {
@@ -52,9 +56,10 @@ namespace Drupal.Core
                     if (VerifyHashedPasswordD7(DrupalPasswordHasherAlgorithm.MD5, hashedPassword, providedPassword))
                     {
                         // Check if this is an old password hash format
-                        return UserNeedsNewHash(hashedPassword)
-                            ? PasswordVerificationResult.SuccessRehashNeeded
-                            : PasswordVerificationResult.Success;
+                        if (UserNeedsNewHash(hashedPassword) || legacyHash)
+                            return PasswordVerificationResult.SuccessRehashNeeded;
+
+                        return PasswordVerificationResult.Success;
                     }
                     else
                     {
@@ -209,6 +214,16 @@ namespace Drupal.Core
             } while (i < input.Length);
 
             return output.ToString();
+        }
+
+        protected static String PasswordHexEncode(byte[] bytes)
+        {
+            var result = new StringBuilder(bytes.Length * 2);
+
+            foreach (var b in bytes)
+                result.AppendFormat("{0:x2}", b);
+
+            return result.ToString();
         }
 
         protected static int PasswordGetCountLog2(String setting)
